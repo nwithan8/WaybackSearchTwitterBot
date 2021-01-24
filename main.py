@@ -1,8 +1,10 @@
 #!/usr/bin/python3
 
 import logging
+import os
 import re
 import urllib
+from typing import Union, Tuple
 
 import tweepy
 from tweepy import StreamListener, Stream
@@ -49,7 +51,7 @@ class TwitterConnector:
         return self.api.user_timeline()
 
     def reply_to_tweet(self, tweet, text: str):
-        self.api.update_status(text, in_reply_to_status_id=tweet.id)
+        self.api.update_status(f"@{str(tweet.user.screen_name)} {text}", in_reply_to_status_id=tweet.id)
 
     def send_tweet(self, text: str):
         self.api.update_status(text)
@@ -61,16 +63,12 @@ class TwitterConnector:
 
 
 # Twitter API Credentials
-"""
+
 consumer_key = os.environ.get('TWITTER_CONSUMER_KEY')
 consumer_secret = os.environ.get('TWITTER_CONSUMER_SECRET')
 access_token = os.environ.get('TWITTER_ACCESS_TOKEN')
 access_secret = os.environ.get('TWITTER_ACCESS_SECRET')
-"""
-consumer_key = ''
-consumer_secret = ''
-access_token = ''
-access_secret = ''
+
 
 twitter = TwitterConnector(consumer_key=consumer_key,
                            consumer_secret=consumer_secret,
@@ -91,7 +89,7 @@ def was_mentioned(status) -> bool:
 
 
 def get_base_tweet(status) -> tweepy.models.Status:
-    if hasattr(status, 'in_reply_to_status_id'):
+    if hasattr(status, 'in_reply_to_status_id') and status.in_reply_to_status_id:
         return twitter.api.get_status(status.in_reply_to_status_id)
     return status
 
@@ -107,25 +105,39 @@ def extract_link_from_tweet(status) -> str:
         return ""
 
 
-def get_wayback_item(url):
-    user_agent = "WaybackSearch Mozilla/5.0 (Windows NT 5.1; rv:40.0) Gecko/20100101 Firefox/40.0"
-    return waybackpy.Url(url, user_agent)
+def get_wayback_item(url) -> Union[waybackpy.Url, None]:
+    try:
+        user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.8; rv:40.0) Gecko/20100101 Firefox/40.0"
+        return waybackpy.Url(url, user_agent)
+    except:
+        return None
 
 
-def filter_wayback_with_instructions(status, wayback_item):
-    wayback_item_entry = None
-    date = re.search("([0-9]{2}\-[0-9]{2}\-[0-9]{4})", status.text)
-    if date:
-        date = date[0]  # only use first date
-        month_day_year = date.split("-")
-        wayback_item_entry = wayback_item.near(month=month_day_year[0], day=month_day_year[1], year=month_day_year[2])
-    elif "oldest" in status:
-        wayback_item_entry = wayback_item.oldest()
-    else:
-        wayback_item_entry = wayback_item.newest()
-    if wayback_item_entry:
-        return wayback_item_entry.archive_url
-    return None
+def filter_wayback_with_instructions(status, wayback_item, url) -> str:
+    try:
+        date = re.search("([0-9]{2}\-[0-9]{2}\-[0-9]{4})", status.text)
+        response = ""
+        if "save" in status.text:
+            try:
+                wayback_item.save()
+                return f"I saved that link to the Wayback Machine: https://web.archive.org/web/{url}"
+            except:
+                return f"Sorry, I couldn't save that link automatically. Click here to manually save it: " \
+                       f"https://web.archive.org/save/{url} "
+        elif date:
+            date = date[0]  # only use first date
+            month_day_year = date.split("-")
+            wayback_item_entry = wayback_item.near(month=month_day_year[0], day=month_day_year[1],
+                                                   year=month_day_year[2])
+            return f"Here you go, the archive entry closest to {date}: {wayback_item_entry.archive_url}"
+        elif "oldest" in status.text:
+            wayback_item_entry = wayback_item.oldest()
+            return f"Here you go, the oldest archive entry: {wayback_item_entry.archive_url}"
+        else:
+            wayback_item_entry = wayback_item.newest()
+            return f"Here you go, the most recent archive entry: {wayback_item_entry.archive_url}"
+    except:
+        return "I had problems parsing the link and/or instructions from the tweet."
 
 
 def process_tweet(status):
@@ -133,17 +145,16 @@ def process_tweet(status):
         tweet_to_reply_to = status
         tweet_with_link = get_base_tweet(status=status)
         link = extract_link_from_tweet(status=tweet_with_link)
-        wayback_item = get_wayback_item(url=link)
-        if not wayback_item:
-            response = "I couldn't find that link on the Wayback Machine."
-        else:
-            wayback_url = filter_wayback_with_instructions(status=tweet_to_reply_to, wayback_item=wayback_item)
-            if not wayback_url:
-                response = "I had problems parsing the link and/or instructions from the tweet."
+        if link:
+            wayback_item = get_wayback_item(url=link)
+            if wayback_item is None:
+                response = "I couldn't find that link on the Wayback Machine."
             else:
-                response = f"Here you go: {wayback_url}"
-        twitter.reply_to_tweet(tweet=tweet_to_reply_to, text=response)
-    return None
+                response = filter_wayback_with_instructions(status=tweet_to_reply_to,
+                                                            wayback_item=wayback_item,
+                                                            url=link)
+            twitter.reply_to_tweet(tweet=tweet_to_reply_to, text=response)
+            info(f"Sent response to {tweet_to_reply_to.user.screen_name}: {response}")
 
 
 twitter.start_stream(username_to_track='searchwayback', function_to_run=process_tweet)
