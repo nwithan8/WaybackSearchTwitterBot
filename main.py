@@ -145,12 +145,13 @@ def filter_wayback_with_instructions(status, wayback_item, url) -> str:
 
 
 def process_tweet(status):
-    info(f"Received tweet from f{status.user.screen_name}")
+    info(f"Received tweet from {status.user.screen_name}")
     if was_mentioned(status=status):
         tweet_to_reply_to = status
         tweet_with_link = get_base_tweet(status=status)
         link = extract_link_from_tweet(status=tweet_with_link)
         if link:
+            info(f"Link to use: {link}")
             wayback_item = get_wayback_item(url=link)
             if wayback_item is None:
                 response = "I couldn't find that link on the Wayback Machine."
