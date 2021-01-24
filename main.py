@@ -141,6 +141,7 @@ def filter_wayback_with_instructions(status, wayback_item, url) -> str:
 
 
 def process_tweet(status):
+    info(f"Received tweet from f{status.user.screen_name}")
     if was_mentioned(status=status):
         tweet_to_reply_to = status
         tweet_with_link = get_base_tweet(status=status)
