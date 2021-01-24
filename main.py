@@ -95,11 +95,15 @@ def get_base_tweet(status) -> tweepy.models.Status:
 
 
 def extract_link_from_tweet(status) -> str:
-    url = re.findall('http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\(\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+', status.text)
-    if not url:
-        return ""
-    url = url[0]  # only interact with the first link in a tweet
+    # entities docs -> https://developer.twitter.com/en/docs/twitter-api/data-dictionary/object-model/tweet#entities
     try:
+        entities = status.entities
+        if hasattr(status, "extended_tweet"):
+            entities = status.extended_tweet.entities
+        urls = entities.get('urls')
+        if not urls:
+            return ""
+        url = urls[0].get('expanded_url', urls[0].get('url'))  # only interact with the first link in a tweet
         return urllib.request.urlopen(url).geturl()  # not the way I would do it, but thanks SO
     except:
         return ""
